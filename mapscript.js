@@ -822,6 +822,22 @@ function setMapInteractive(interactive) {
   });
 }
 
+// Hide all labels (street names, building names, POIs) during the quiz so
+// the player can't read them off the map. Restored when the game ends.
+const QUIZ_MODE_STYLES = [
+  { elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { featureType: "administrative", elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "road", elementType: "labels", stylers: [{ visibility: "off" }] }
+];
+const NORMAL_MODE_STYLES = [];
+
+function setMapQuizStyle(quizMode) {
+  if (!map) return;
+  map.setOptions({ styles: quizMode ? QUIZ_MODE_STYLES : NORMAL_MODE_STYLES });
+}
+
 // Disable/enable the existing search + layer controls during the game.
 function setNonGameControlsEnabled(enabled) {
   const ids = ["food-btn", "parking-btn", "buildings-btn",
@@ -864,6 +880,7 @@ function startGame() {
 
   // Lock the map and stash the current layer view.
   setMapInteractive(false);
+  setMapQuizStyle(true);
   snapshotAndHideLayers();
   setNonGameControlsEnabled(false);
 
@@ -944,6 +961,7 @@ function endGame() {
 
   // Hand the page back to its normal behavior.
   setMapInteractive(true);
+  setMapQuizStyle(false);
   setNonGameControlsEnabled(true);
   restoreLayers();
 }
