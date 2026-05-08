@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <title>Campus Map | CSUN Campus Resource Hub</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <link rel="stylesheet" href="assets/css/main.css">
+  <noscript>
+    <link rel="stylesheet" href="assets/css/noscript.css">
+  </noscript>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <style>
+    #map {
+      width: 100%;
+      height: 60vh;
+      border-radius: 8px;
+    }
+
+    #controls {
+      margin-top: 1rem;
+    }
+
+    .control-button {
+      margin-right: .5rem;
+    }
+  </style>
+
+    <!-- Google Fonts for topbar -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <style>
+      /* ── Topbar variables ── */
+      :root {
+        --red:       #d22030;
+        --red-dim:   rgba(210,32,48,0.18);
+        --red-glow:  rgba(210,32,48,0.35);
+        --tb-bg:     rgba(11,13,15,0.88);
+        --tb-border: rgba(255,255,255,0.08);
+        --tb-text:   #e8eaed;
+        --tb-muted:  rgba(232,234,237,0.5);
+        --tb-surface:rgba(255,255,255,0.045);
+      }
+
+      /* Hide the original header + off-canvas menu so topbar takes over */
+      #header { display: none !important; }
+      #menu   { display: none !important; }
+
+      /* Push page content below the fixed topbar */
+      body { padding-top: 64px; } #main { padding-top: 2.5rem; }
+
+      /* ── Topbar ── */
+      .topbar {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 2.5rem;
+        height: 64px;
+        background: var(--tb-bg);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border-bottom: 1px solid var(--tb-border);
+      }
+
+      .topbar-logo {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        text-decoration: none;
+        border-bottom: none;
+      }
+
+      .topbar-logo img {
+        width: 32px;
+        height: 32px;
+        object-fit: contain;
+      }
+
+      .topbar-logo span {
+        font-family: 'Syne', sans-serif;
+        font-size: 0.95rem;
+        font-weight: 800;
+        color: var(--tb-text);
+        letter-spacing: 0.01em;
+      }
+
+      .topbar-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        margin-left: -8rem;
+      }
+
+      .topbar-nav a {
+        color: var(--tb-muted);
+        text-decoration: none;
+        border-bottom: none;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.82rem;
+        font-weight: 500;
+        padding: 0.4rem 0.85rem;
+        border-radius: 6px;
+        transition: color 0.2s, background 0.2s;
+        letter-spacing: 0.02em;
+      }
+
+      .topbar-nav a:hover {
+        color: var(--tb-text) !important;
+        background: var(--tb-surface);
+        border-bottom: none;
+      }
+
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+      }
+
+      #welcome-pill {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.78rem;
+        color: var(--tb-muted);
+        background: var(--tb-surface);
+        border: 1px solid var(--tb-border);
+        padding: 0.3rem 0.85rem;
+        border-radius: 99px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 220px;
+      }
+
+      .btn-logout {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--red) !important;
+        background: var(--red-dim);
+        border: 1px solid var(--red-glow);
+        padding: 0.35rem 0.9rem;
+        border-radius: 6px;
+        cursor: pointer;
+        text-decoration: none;
+        transition: background 0.2s, box-shadow 0.2s;
+      }
+
+      .btn-logout:hover {
+        background: rgba(210,32,48,0.28);
+        box-shadow: 0 0 12px var(--red-glow);
+        border-bottom: none;
+      }
+
+      /* Mobile: hide nav links on small screens */
+      @media screen and (max-width: 736px) {
+        .topbar { padding: 0 1rem; }
+        .topbar-nav { display: none; }
+        #welcome-pill { max-width: 130px; }
+      }
+    </style>
+  </head>
+
+  <body class="is-preload">
+
+    <!-- ── New Topbar ── -->
+    <header class="topbar">
+      <a href="index.html" class="topbar-logo">
+        <img src="images/CSUNlogo.png" alt="CSUN Logo" />
+        <span>CSUN Hub</span>
+      </a>
+
+      <nav class="topbar-nav">
+        <a href="index.html">Home</a>
+        <a href="dashboard480.html">Dashboard</a>
+        <a href="map480.html">Map</a>
+        <a href="dining480.html">Dining</a>
+        <a href="clubs480.html">Clubs</a>
+        <a href="career480.html">Careers</a>
+        <a href="myaccount.html">Skill Tree</a>
+        <a href="signup.html">Sign Up</a>
+      </nav>
+
+      <div class="topbar-right">
+        <span id="welcome-pill">Loading…</span>
+        <a href="#" class="btn-logout" onclick="logout(); return false;">Sign out</a>
+      </div>
+    </header>
+  <!-- Wrapper -->
+  <div id="wrapper">
+
+    <!-- Header -->
+    <header id="header">
+      <div class="inner">
+
+        <!-- Logo -->
+        <a href="index.html" class="logo">
+          <!-- Put your CSUN logo file in /images as CSUNlogo.png, or change this path -->
+          <span class="symbol">
+            <img src="images/CSUNlogo.png" alt="CSUN Logo" />
+          </span>
+          <span class="title">CSUN Campus Resource Hub</span>
+        </a>
+
+        <!-- Nav trigger -->
+        <nav>
+          <ul>
+            <li><a href="#menu">Menu</a></li>
+          </ul>
+        </nav>
+
+      </div>
+    </header>
+
+    <!--
+WHERE: Used at the top of each style480 page (map480.html, dining480.html, clubs480.html).
+WHAT: The <nav> element represents a section of navigation links.
+HOW: I use it to contain the main navigation menu that links to Home, Map, Dining, Clubs, and Careers pages.
+-->
+    <!-- Off-canvas Menu -->
+    <nav id="menu">
+      <h2>Menu</h2>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="home480.html">Student Dashboard</a></li>
+        <li><a href="map480.html">Campus Map</a></li>
+        <li><a href="dining480.html">Dining</a></li>
+        <li><a href="clubs480.html">Clubs &amp; Orgs</a></li>
+        <li><a href="career480.html">Careers</a></li>
+        <!-- Account links -->
+        <li><a href="login.html">Login</a></li>
+        <li><a href="signup.html">Sign Up</a></li>
+      </ul>
+    </nav>
+
+    <div id="main">
+      <div class="inner">
+        <header>
+          <h1>Campus Map</h1>
+          <p>Toggle layers to explore food, parking, and buildings.</p>
+        </header>
+
+        <section class="box">
+          <div id="map-search-wrap" class="box alt">
+  <div class="row gtr-uniform">
+    <div class="col-8 col-12-small">
+      <input type="text" id="map-search-input" placeholder="Search food, parking, or buildings">
+    </div>
+    <div class="col-4 col-12-small">
+      <button id="map-search-btn" class="button primary fit">Search</button>
+    </div>
+  </div>
+  <div id="map-search-results"></div>
+</div>
+          <div id="map"></div>
+          <div id="controls">
+            <h3>Map Layers</h3>
+            <button id="food-btn" class="button small primary">Food</button>
+            <button id="parking-btn" class="button small">Parking</button>
+            <button id="buildings-btn" class="button small">Buildings</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <footer id="footer">
+      <div class="inner">
+        <ul class="copyright">
+          <li>© CSUN Campus Resource Hub.</li>
+        </ul>
+      </div>
+    </footer>
+  </div>
+
+  <nav id="menu">
+    <div class="inner">
+      <h2>Menu</h2>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="home480.html">Student Dashboard</a></li>
+        <li><a href="map480.html">Campus Map</a></li>
+        <li><a href="dining480.html">Dining</a></li>
+        <li><a href="clubs480.html">Clubs &amp; Orgs</a></li>
+        <li><a href="career480.html">Careers</a></li>
+        <li><a href="login.html">Login</a></li>
+        <li><a href="signup.html">Sign Up</a></li>
+      </ul>
+    </div>
+    <a class="close" href="#menu">Close</a>
+  </nav>
+
+  <!-- Google Maps loader -->
+  <script>(g => { var h, a, k, p = "The Google Maps JavaScript API", c = "google", l = "importLibrary", q = "__ib__", m = document, b = window; b = b[c] || (b[c] = {}); var d = b.maps || (b.maps = {}), r = new Set, e = new URLSearchParams, u = () => h || (h = new Promise(async (f, n) => { await (a = m.createElement("script")); e.set("libraries", [...r] + ""); for (k in g) e.set(k.replace(/[A-Z]/g, t => "_" + t.toLowerCase()), g[k]); e.set("callback", c + ".maps." + q); a.src = `https://maps.${c}apis.com/maps/api/js?` + e; d[q] = f; a.onerror = () => h = n(Error(p + " could not load.")); a.nonce = m.querySelector("script[nonce]")?.nonce || ""; m.head.append(a) })); d[l] ? console.warn(p + " only loads once. Ignoring:", g) : d[l] = (f, ...n) => r.add(f) && u().then(() => d[l](f, ...n)) })({ key: "AIzaSyACsNTRbOcToaiZYPhVnR1qm44VV4EtmJs", v: "weekly" });</script>
+  <script src="js/mapscript.js"></script>
+
+  <script src="assets/js/jquery.min.js"></script>
+  <script src="assets/js/browser.min.js"></script>
+  <script src="assets/js/breakpoints.min.js"></script>
+  <script src="assets/js/util.js"></script>
+  <script src="assets/js/main.js"></script>
+    <!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyClTeS_q66bYQkVEOcSoc-TY3VX4QRKeho",
+    authDomain: "csunhub.firebaseapp.com",
+    projectId: "csunhub",
+    storageBucket: "csunhub.appspot.com",
+    messagingSenderId: "310029268686",
+    appId: "1:310029268686:web:f2ce71516f1f82e166829f",
+    measurementId: "G-ZEM4D9Y5XB"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db   = firebase.firestore();
+
+  const welcomeEl  = document.getElementById("welcome");
+  const pill       = document.getElementById("welcome-pill");
+  const menuLogin  = document.getElementById("menu-login");
+  const menuSignup = document.getElementById("menu-signup");
+  const menuLogout = document.getElementById("menu-logout");
+
+  auth.onAuthStateChanged(async user => {
+  const pill = document.getElementById("welcome-pill");
+  if (user) {
+    try {
+      const snap = await db.collection('users').doc(user.uid).get();
+      const username = snap.exists ? snap.data().username : null;
+      if (pill) pill.textContent = username || user.displayName || user.email;
+    } catch (err) {
+      // Firestore read failed, fall back gracefully
+      if (pill) pill.textContent = user.displayName || user.email;
+    }
+  } else {
+    if (pill) pill.textContent = "Not signed in";
+  }
+});
+
+  function logout() {
+    auth.signOut().then(() => {
+      window.location.href = "login.html";
+    }).catch(err => console.error("Logout error:", err));
+  }
+</script>
+</body>
+
+
+</html>
