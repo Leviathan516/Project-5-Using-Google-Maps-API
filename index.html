@@ -74,7 +74,7 @@
     }
 
     /* ── Map + Game ── */
-    #map {
+    #map, #quiz-map {
       width: 100%;
       height: 60vh;
       border-radius: 8px;
@@ -87,6 +87,43 @@
     .control-button {
       margin-right: .5rem;
     }
+
+    /* ── Tabs ── */
+    .tab-bar {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1.25rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .tab-bar button {
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      padding: 0.85rem 1.5rem;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: rgba(232, 234, 237, 0.55);
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+      border-radius: 0;
+      margin-bottom: -1px;
+    }
+
+    .tab-bar button:hover {
+      color: rgba(232, 234, 237, 0.9);
+    }
+
+    .tab-bar button.active {
+      color: #e8eaed;
+      border-bottom-color: #d22030;
+    }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
 
     /* ── Location Game Styles ── */
     #game-panel {
@@ -153,33 +190,47 @@
         </header>
 
         <section class="box">
-          <div id="map-search-wrap" class="box alt">
-            <div class="row gtr-uniform">
-              <div class="col-8 col-12-small">
-                <input type="text" id="map-search-input" placeholder="Search food, parking, or buildings">
+          <!-- Tab bar -->
+          <div class="tab-bar">
+            <button id="tab-explore" class="active" type="button">🗺️ Explore Map</button>
+            <button id="tab-quiz" type="button">🎯 Map Quiz</button>
+          </div>
+
+          <!-- Explore Map tab -->
+          <div id="pane-explore" class="tab-pane active">
+            <div id="map-search-wrap" class="box alt">
+              <div class="row gtr-uniform">
+                <div class="col-8 col-12-small">
+                  <input type="text" id="map-search-input" placeholder="Search food, parking, or buildings">
+                </div>
+                <div class="col-4 col-12-small">
+                  <button id="map-search-btn" class="button primary fit">Search</button>
+                </div>
               </div>
-              <div class="col-4 col-12-small">
-                <button id="map-search-btn" class="button primary fit">Search</button>
-              </div>
+              <div id="map-search-results"></div>
             </div>
-            <div id="map-search-results"></div>
+
+            <div id="map"></div>
+
+            <div id="controls">
+              <h3>Map Layers</h3>
+              <button id="food-btn" class="button small primary">Food</button>
+              <button id="parking-btn" class="button small">Parking</button>
+              <button id="buildings-btn" class="button small">Buildings</button>
+            </div>
           </div>
 
-          <div id="map"></div>
+          <!-- Map Quiz tab -->
+          <div id="pane-quiz" class="tab-pane">
+            <div id="quiz-map"></div>
 
-          <div id="controls">
-            <h3>Map Layers</h3>
-            <button id="food-btn" class="button small primary">Food</button>
-            <button id="parking-btn" class="button small">Parking</button>
-            <button id="buildings-btn" class="button small">Buildings</button>
-          </div>
-
-          <div id="game-panel">
-            <h3>🎯 Find the Location Challenge</h3>
-            <p>Test your CSUN campus knowledge! You'll be given 5 locations to find. <strong>Double-click</strong> the spot on the map where you think each location is.</p>
-            <button id="start-game-btn" class="button primary">▶ Play</button>
-            <div id="game-status">Click "Play" to begin.</div>
-            <div id="game-progress"></div>
+            <div id="game-panel">
+              <h3>🎯 Find the Location Challenge</h3>
+              <p>Test your CSUN campus knowledge! You'll be given 5 locations to find. <strong>Double-click</strong> the spot on the map where you think each location is.</p>
+              <button id="start-game-btn" class="button primary">▶ Play</button>
+              <div id="game-status">Click "Play" to begin.</div>
+              <div id="game-progress"></div>
+            </div>
           </div>
         </section>
       </div>
