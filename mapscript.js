@@ -584,17 +584,7 @@ async function initMap() {
     center: csunCenter,
     zoom: 16,
     mapId: "DEMO_MAP_ID",
-    gestureHandling: "none",
-    disableDoubleClickZoom: true,
-    draggable: false,
-    scrollwheel: false,
-    zoomControl: false,
-    panControl: false,
-    streetViewControl: false,
-    rotateControl: false,
-    fullscreenControl: false,
-    keyboardShortcuts: false,
-    clickableIcons: false
+    gestureHandling: "greedy"
   });
 
   foodMarkers = createMarkers(locations.food, "#FFC107");
@@ -705,16 +695,18 @@ initMap();
 
 /* =========================================================
    FIND-THE-LOCATION GAME
-   - User is prompted to find a CSUN location
-   - User double-clicks where they think it is
-   - Correct  -> green circle drawn on the actual location
-   - Incorrect -> red circle drawn on the actual location
-   - After 5 rounds, final score is shown
-   - Map panning/zooming stays disabled
+   - Click Play to start; existing map features (search,
+     layers, pan, zoom) work normally when the game isn't
+     running.
+   - During the game: panning/zooming disabled, markers and
+     search/layer buttons disabled so the player can't peek.
+   - User double-clicks where they think the prompted
+     location is. Correct -> green circle on the actual
+     spot. Wrong -> red circle on the actual spot.
+   - 5 rounds (1 instructor pick + 4 developer picks),
+     final score shown at the end.
    ========================================================= */
 
-// How close (in meters) a double-click must be to count as correct.
-// Buildings on campus are ~30-80m wide, so 60m is fair.
 const GAME_HIT_RADIUS_METERS = 60;
 const GAME_TOTAL_ROUNDS = 5;
 
@@ -722,17 +714,20 @@ const GAME_TOTAL_ROUNDS = 5;
 let gameActive = false;
 let gameRound = 0;
 let gameScore = 0;
-let gameTargets = [];          // the 5 chosen locations for this run
+let gameTargets = [];
 let currentTarget = null;
-let gameCircles = [];          // circles drawn on map (cleared between games)
+let gameCircles = [];
 let gameDblClickListener = null;
-let gameAcceptingInput = false; // false while we briefly show feedback
+let gameAcceptingInput = false;
 
-// The "instructor's required" pick — clearly labeled so it's easy to swap.
-// (Per the assignment: 1 location is required, 4 are chosen by the developer.)
+// Remember which layer was visible before the game started
+// so we can restore it when the game ends.
+let gamePrevLayerBtnId = null;
+
+// The "instructor's required" pick — easy to swap.
 const INSTRUCTOR_PICK_TITLE = "University Library";
 
-// 4 developer-chosen locations (well-known CSUN landmarks).
+// 4 developer-chosen locations.
 const DEVELOPER_PICK_TITLES = [
   "Jacaranda Hall",
   "University Student Union (USU)",
@@ -815,22 +810,62 @@ function drawAnswerCircle(position, isCorrect) {
   gameCircles.push(circle);
 }
 
-function hideAllLayerMarkers() {
-  // Hide markers so they don't give the answer away.
+// Lock the map so the player can't pan/zoom while playing.
+function setMapInteractive(interactive) {
+  map.setOptions({
+    gestureHandling: interactive ? "greedy" : "none",
+    draggable: interactive,
+    scrollwheel: interactive,
+    disableDoubleClickZoom: !interactive,
+    zoomControl: interactive,
+    keyboardShortcuts: interactive
+  });
+}
+
+// Disable/enable the existing search + layer controls during the game.
+function setNonGameControlsEnabled(enabled) {
+  const ids = ["food-btn", "parking-btn", "buildings-btn",
+               "map-search-input", "map-search-btn"];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !enabled;
+  });
+}
+
+// Remember which layer button was selected, then hide all markers.
+function snapshotAndHideLayers() {
+  const buttons = document.querySelectorAll("#controls .button");
+  gamePrevLayerBtnId = null;
+  buttons.forEach(btn => {
+    if (btn.classList.contains("primary")) {
+      gamePrevLayerBtnId = btn.id;
+    }
+    btn.classList.remove("primary");
+  });
+
   [foodMarkers, parkingMarkers, buildingMarkers].forEach(arr => {
     arr.forEach(m => { m.map = null; });
   });
-  // Visually deselect the layer buttons.
-  document.querySelectorAll("#controls .button").forEach(btn => {
-    btn.classList.remove("primary");
-  });
+}
+
+// Restore the layer that was visible before the game started.
+function restoreLayers() {
+  if (gamePrevLayerBtnId === "food-btn") toggleLayer(foodMarkers, "food-btn");
+  else if (gamePrevLayerBtnId === "parking-btn") toggleLayer(parkingMarkers, "parking-btn");
+  else if (gamePrevLayerBtnId === "buildings-btn") toggleLayer(buildingMarkers, "buildings-btn");
+  // If nothing was selected before, leave markers hidden.
+  gamePrevLayerBtnId = null;
 }
 
 function startGame() {
   // Reset state
   clearGameCircles();
   if (infoWindow) infoWindow.close();
-  hideAllLayerMarkers();
+
+  // Lock the map and stash the current layer view.
+  setMapInteractive(false);
+  snapshotAndHideLayers();
+  setNonGameControlsEnabled(false);
 
   gameActive = true;
   gameRound = 0;
@@ -842,15 +877,8 @@ function startGame() {
     gameDblClickListener = map.addListener("dblclick", onMapDoubleClick);
   }
 
-  // Disable layer buttons during the game so the player can't peek.
-  ["food-btn", "parking-btn", "buildings-btn"].forEach(id => {
-    const b = document.getElementById(id);
-    if (b) b.disabled = true;
-  });
-
-  // Update start button to "Restart"
   const startBtn = document.getElementById("start-game-btn");
-  if (startBtn) startBtn.textContent = "Restart Game";
+  if (startBtn) startBtn.textContent = "▶ Restart";
 
   nextRound();
 }
@@ -880,10 +908,8 @@ function onMapDoubleClick(event) {
   const dist = distanceMeters(guess, currentTarget.position);
   const isCorrect = dist <= GAME_HIT_RADIUS_METERS;
 
-  // Stop accepting clicks until the next round starts.
   gameAcceptingInput = false;
 
-  // Always draw the answer area on the actual location.
   drawAnswerCircle(currentTarget.position, isCorrect);
 
   if (isCorrect) {
@@ -910,25 +936,23 @@ function endGame() {
   currentTarget = null;
 
   setGameStatus(
-    `🏁 Game over! You got ${gameScore} out of ${GAME_TOTAL_ROUNDS} correct. Click "Restart Game" to play again.`,
+    `🏁 Game over! You got ${gameScore} out of ${GAME_TOTAL_ROUNDS} correct. Click "Restart" to play again.`,
     gameScore === GAME_TOTAL_ROUNDS ? "correct" : "prompt"
   );
   const progressEl = document.getElementById("game-progress");
   if (progressEl) progressEl.textContent = `Final Score: ${gameScore} / ${GAME_TOTAL_ROUNDS}`;
 
-  // Re-enable layer buttons so the user can resume normal map use.
-  ["food-btn", "parking-btn", "buildings-btn"].forEach(id => {
-    const b = document.getElementById(id);
-    if (b) b.disabled = false;
-  });
+  // Hand the page back to its normal behavior.
+  setMapInteractive(true);
+  setNonGameControlsEnabled(true);
+  restoreLayers();
 }
 
-// Wire up the Start button after DOM is ready.
+// Wire up the Play button after DOM is ready.
 document.addEventListener("DOMContentLoaded", () => {
   const startBtn = document.getElementById("start-game-btn");
   if (startBtn) {
     startBtn.addEventListener("click", () => {
-      // If initMap hasn't finished yet, wait briefly.
       if (!map) {
         setGameStatus("Map is still loading, please try again in a moment.", "prompt");
         return;
