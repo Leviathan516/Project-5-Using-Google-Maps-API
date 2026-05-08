@@ -584,7 +584,17 @@ async function initMap() {
     center: csunCenter,
     zoom: 16,
     mapId: "DEMO_MAP_ID",
-    gestureHandling: "greedy"
+    gestureHandling: "none",
+    disableDoubleClickZoom: true,
+    draggable: false,
+    scrollwheel: false,
+    zoomControl: false,
+    panControl: false,
+    streetViewControl: false,
+    rotateControl: false,
+    fullscreenControl: false,
+    keyboardShortcuts: false,
+    clickableIcons: false
   });
 
   foodMarkers = createMarkers(locations.food, "#FFC107");
@@ -692,3 +702,238 @@ function toggleLayer(markers, buttonId) {
 }
 
 initMap();
+
+/* =========================================================
+   FIND-THE-LOCATION GAME
+   - User is prompted to find a CSUN location
+   - User double-clicks where they think it is
+   - Correct  -> green circle drawn on the actual location
+   - Incorrect -> red circle drawn on the actual location
+   - After 5 rounds, final score is shown
+   - Map panning/zooming stays disabled
+   ========================================================= */
+
+// How close (in meters) a double-click must be to count as correct.
+// Buildings on campus are ~30-80m wide, so 60m is fair.
+const GAME_HIT_RADIUS_METERS = 60;
+const GAME_TOTAL_ROUNDS = 5;
+
+// Game state
+let gameActive = false;
+let gameRound = 0;
+let gameScore = 0;
+let gameTargets = [];          // the 5 chosen locations for this run
+let currentTarget = null;
+let gameCircles = [];          // circles drawn on map (cleared between games)
+let gameDblClickListener = null;
+let gameAcceptingInput = false; // false while we briefly show feedback
+
+// The "instructor's required" pick — clearly labeled so it's easy to swap.
+// (Per the assignment: 1 location is required, 4 are chosen by the developer.)
+const INSTRUCTOR_PICK_TITLE = "University Library";
+
+// 4 developer-chosen locations (well-known CSUN landmarks).
+const DEVELOPER_PICK_TITLES = [
+  "Jacaranda Hall",
+  "University Student Union (USU)",
+  "Bookstein Hall",
+  "The Soraya (VPAC)"
+];
+
+function findBuildingByTitle(title) {
+  return locations.buildings.find(b => b.title === title) || null;
+}
+
+function buildGameTargets() {
+  const targets = [];
+  const required = findBuildingByTitle(INSTRUCTOR_PICK_TITLE);
+  if (required) targets.push(required);
+
+  for (const title of DEVELOPER_PICK_TITLES) {
+    const b = findBuildingByTitle(title);
+    if (b && !targets.includes(b)) targets.push(b);
+  }
+
+  // Shuffle so the required pick isn't always first.
+  for (let i = targets.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [targets[i], targets[j]] = [targets[j], targets[i]];
+  }
+  return targets;
+}
+
+// Haversine distance in meters between two {lat,lng} points.
+function distanceMeters(a, b) {
+  const R = 6371000;
+  const toRad = d => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+
+  const h = Math.sin(dLat / 2) ** 2 +
+            Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function setGameStatus(message, kind) {
+  const el = document.getElementById("game-status");
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove("correct", "wrong", "prompt");
+  if (kind) el.classList.add(kind);
+}
+
+function setGameProgress() {
+  const el = document.getElementById("game-progress");
+  if (!el) return;
+  if (!gameActive) {
+    el.textContent = "";
+    return;
+  }
+  el.textContent = `Round ${gameRound} of ${GAME_TOTAL_ROUNDS}  •  Score: ${gameScore}`;
+}
+
+function clearGameCircles() {
+  gameCircles.forEach(c => c.setMap(null));
+  gameCircles = [];
+}
+
+function drawAnswerCircle(position, isCorrect) {
+  const color = isCorrect ? "#4CAF50" : "#d22030";
+  const circle = new google.maps.Circle({
+    map,
+    center: position,
+    radius: GAME_HIT_RADIUS_METERS,
+    strokeColor: color,
+    strokeOpacity: 0.9,
+    strokeWeight: 2,
+    fillColor: color,
+    fillOpacity: 0.35,
+    clickable: false
+  });
+  gameCircles.push(circle);
+}
+
+function hideAllLayerMarkers() {
+  // Hide markers so they don't give the answer away.
+  [foodMarkers, parkingMarkers, buildingMarkers].forEach(arr => {
+    arr.forEach(m => { m.map = null; });
+  });
+  // Visually deselect the layer buttons.
+  document.querySelectorAll("#controls .button").forEach(btn => {
+    btn.classList.remove("primary");
+  });
+}
+
+function startGame() {
+  // Reset state
+  clearGameCircles();
+  if (infoWindow) infoWindow.close();
+  hideAllLayerMarkers();
+
+  gameActive = true;
+  gameRound = 0;
+  gameScore = 0;
+  gameTargets = buildGameTargets();
+
+  // Attach the double-click listener once.
+  if (!gameDblClickListener) {
+    gameDblClickListener = map.addListener("dblclick", onMapDoubleClick);
+  }
+
+  // Disable layer buttons during the game so the player can't peek.
+  ["food-btn", "parking-btn", "buildings-btn"].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = true;
+  });
+
+  // Update start button to "Restart"
+  const startBtn = document.getElementById("start-game-btn");
+  if (startBtn) startBtn.textContent = "Restart Game";
+
+  nextRound();
+}
+
+function nextRound() {
+  if (gameRound >= GAME_TOTAL_ROUNDS) {
+    endGame();
+    return;
+  }
+
+  clearGameCircles();
+  currentTarget = gameTargets[gameRound];
+  gameRound++;
+  gameAcceptingInput = true;
+
+  setGameStatus(
+    `Round ${gameRound}: Double-click the map where you think "${currentTarget.title}" is located.`,
+    "prompt"
+  );
+  setGameProgress();
+}
+
+function onMapDoubleClick(event) {
+  if (!gameActive || !gameAcceptingInput || !currentTarget) return;
+
+  const guess = { lat: event.latLng.lat(), lng: event.latLng.lng() };
+  const dist = distanceMeters(guess, currentTarget.position);
+  const isCorrect = dist <= GAME_HIT_RADIUS_METERS;
+
+  // Stop accepting clicks until the next round starts.
+  gameAcceptingInput = false;
+
+  // Always draw the answer area on the actual location.
+  drawAnswerCircle(currentTarget.position, isCorrect);
+
+  if (isCorrect) {
+    gameScore++;
+    setGameStatus(
+      `✅ Correct! That's "${currentTarget.title}". Next round in 2 seconds...`,
+      "correct"
+    );
+  } else {
+    setGameStatus(
+      `❌ Wrong. The correct location for "${currentTarget.title}" is highlighted in red. Next round in 2.5 seconds...`,
+      "wrong"
+    );
+  }
+  setGameProgress();
+
+  const delay = isCorrect ? 2000 : 2500;
+  setTimeout(nextRound, delay);
+}
+
+function endGame() {
+  gameActive = false;
+  gameAcceptingInput = false;
+  currentTarget = null;
+
+  setGameStatus(
+    `🏁 Game over! You got ${gameScore} out of ${GAME_TOTAL_ROUNDS} correct. Click "Restart Game" to play again.`,
+    gameScore === GAME_TOTAL_ROUNDS ? "correct" : "prompt"
+  );
+  const progressEl = document.getElementById("game-progress");
+  if (progressEl) progressEl.textContent = `Final Score: ${gameScore} / ${GAME_TOTAL_ROUNDS}`;
+
+  // Re-enable layer buttons so the user can resume normal map use.
+  ["food-btn", "parking-btn", "buildings-btn"].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = false;
+  });
+}
+
+// Wire up the Start button after DOM is ready.
+document.addEventListener("DOMContentLoaded", () => {
+  const startBtn = document.getElementById("start-game-btn");
+  if (startBtn) {
+    startBtn.addEventListener("click", () => {
+      // If initMap hasn't finished yet, wait briefly.
+      if (!map) {
+        setGameStatus("Map is still loading, please try again in a moment.", "prompt");
+        return;
+      }
+      startGame();
+    });
+  }
+});
