@@ -587,6 +587,30 @@ async function initMap() {
     gestureHandling: "greedy"
   });
 
+  // Build the separate quiz map. No mapId so the JS `styles` array is honored
+  // (cloud-styled maps with a mapId ignore the styles array). All gestures
+  // are disabled because the assignment requires panning/zooming off.
+  quizMap = new Map(document.getElementById("quiz-map"), {
+    center: csunCenter,
+    zoom: 16,
+    gestureHandling: "none",
+    draggable: false,
+    scrollwheel: false,
+    disableDoubleClickZoom: true,
+    zoomControl: false,
+    panControl: false,
+    streetViewControl: false,
+    rotateControl: false,
+    fullscreenControl: false,
+    keyboardShortcuts: false,
+    clickableIcons: false,
+    mapTypeControl: false,
+    styles: QUIZ_MODE_STYLES
+  });
+
+  // Wire the quiz map's permanent dblclick listener once.
+  quizMap.addListener("dblclick", onQuizMapDoubleClick);
+
   foodMarkers = createMarkers(locations.food, "#FFC107");
   parkingMarkers = createMarkers(locations.parking, "#2196F3");
   buildingMarkers = createMarkers(locations.buildings, "#4CAF50");
@@ -694,21 +718,32 @@ function toggleLayer(markers, buttonId) {
 initMap();
 
 /* =========================================================
-   FIND-THE-LOCATION GAME
-   - Click Play to start; existing map features (search,
-     layers, pan, zoom) work normally when the game isn't
-     running.
-   - During the game: panning/zooming disabled, markers and
-     search/layer buttons disabled so the player can't peek.
-   - User double-clicks where they think the prompted
-     location is. Correct -> green circle on the actual
-     spot. Wrong -> red circle on the actual spot.
+   FIND-THE-LOCATION GAME (runs on its own quiz map)
+   - The Map Quiz tab shows a separate Google Map (`quizMap`)
+     that has no labels and no panning/zooming.
+   - The Explore Map (`map`) is untouched while the game runs,
+     so switching tabs preserves the player's exploration view.
+   - Click Play to start, double-click to guess. Correct ->
+     green circle on the actual spot. Wrong -> red circle.
    - 5 rounds (1 instructor pick + 4 developer picks),
      final score shown at the end.
    ========================================================= */
 
 const GAME_HIT_RADIUS_METERS = 60;
 const GAME_TOTAL_ROUNDS = 5;
+
+// Quiz map style: hide labels (street names, building names, POIs)
+// so the player can't read them off the map.
+const QUIZ_MODE_STYLES = [
+  { elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { featureType: "administrative", elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "road", elementType: "labels", stylers: [{ visibility: "off" }] }
+];
+
+// Quiz-map handle (created inside initMap)
+let quizMap = null;
 
 // Game state
 let gameActive = false;
@@ -717,12 +752,7 @@ let gameScore = 0;
 let gameTargets = [];
 let currentTarget = null;
 let gameCircles = [];
-let gameDblClickListener = null;
 let gameAcceptingInput = false;
-
-// Remember which layer was visible before the game started
-// so we can restore it when the game ends.
-let gamePrevLayerBtnId = null;
 
 // The "instructor's required" pick — easy to swap.
 const INSTRUCTOR_PICK_TITLE = "University Library";
@@ -797,7 +827,7 @@ function clearGameCircles() {
 function drawAnswerCircle(position, isCorrect) {
   const color = isCorrect ? "#4CAF50" : "#d22030";
   const circle = new google.maps.Circle({
-    map,
+    map: quizMap,
     center: position,
     radius: GAME_HIT_RADIUS_METERS,
     strokeColor: color,
@@ -810,89 +840,18 @@ function drawAnswerCircle(position, isCorrect) {
   gameCircles.push(circle);
 }
 
-// Lock the map so the player can't pan/zoom while playing.
-function setMapInteractive(interactive) {
-  map.setOptions({
-    gestureHandling: interactive ? "greedy" : "none",
-    draggable: interactive,
-    scrollwheel: interactive,
-    disableDoubleClickZoom: !interactive,
-    zoomControl: interactive,
-    keyboardShortcuts: interactive
-  });
-}
-
-// Hide all labels (street names, building names, POIs) during the quiz so
-// the player can't read them off the map. Restored when the game ends.
-const QUIZ_MODE_STYLES = [
-  { elementType: "labels", stylers: [{ visibility: "off" }] },
-  { featureType: "poi", stylers: [{ visibility: "off" }] },
-  { featureType: "transit", stylers: [{ visibility: "off" }] },
-  { featureType: "administrative", elementType: "labels", stylers: [{ visibility: "off" }] },
-  { featureType: "road", elementType: "labels", stylers: [{ visibility: "off" }] }
-];
-const NORMAL_MODE_STYLES = [];
-
-function setMapQuizStyle(quizMode) {
-  if (!map) return;
-  map.setOptions({ styles: quizMode ? QUIZ_MODE_STYLES : NORMAL_MODE_STYLES });
-}
-
-// Disable/enable the existing search + layer controls during the game.
-function setNonGameControlsEnabled(enabled) {
-  const ids = ["food-btn", "parking-btn", "buildings-btn",
-               "map-search-input", "map-search-btn"];
-  ids.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = !enabled;
-  });
-}
-
-// Remember which layer button was selected, then hide all markers.
-function snapshotAndHideLayers() {
-  const buttons = document.querySelectorAll("#controls .button");
-  gamePrevLayerBtnId = null;
-  buttons.forEach(btn => {
-    if (btn.classList.contains("primary")) {
-      gamePrevLayerBtnId = btn.id;
-    }
-    btn.classList.remove("primary");
-  });
-
-  [foodMarkers, parkingMarkers, buildingMarkers].forEach(arr => {
-    arr.forEach(m => { m.map = null; });
-  });
-}
-
-// Restore the layer that was visible before the game started.
-function restoreLayers() {
-  if (gamePrevLayerBtnId === "food-btn") toggleLayer(foodMarkers, "food-btn");
-  else if (gamePrevLayerBtnId === "parking-btn") toggleLayer(parkingMarkers, "parking-btn");
-  else if (gamePrevLayerBtnId === "buildings-btn") toggleLayer(buildingMarkers, "buildings-btn");
-  // If nothing was selected before, leave markers hidden.
-  gamePrevLayerBtnId = null;
-}
-
 function startGame() {
-  // Reset state
-  clearGameCircles();
-  if (infoWindow) infoWindow.close();
+  if (!quizMap) {
+    setGameStatus("Map is still loading, please try again in a moment.", "prompt");
+    return;
+  }
 
-  // Lock the map and stash the current layer view.
-  setMapInteractive(false);
-  setMapQuizStyle(true);
-  snapshotAndHideLayers();
-  setNonGameControlsEnabled(false);
+  clearGameCircles();
 
   gameActive = true;
   gameRound = 0;
   gameScore = 0;
   gameTargets = buildGameTargets();
-
-  // Attach the double-click listener once.
-  if (!gameDblClickListener) {
-    gameDblClickListener = map.addListener("dblclick", onMapDoubleClick);
-  }
 
   const startBtn = document.getElementById("start-game-btn");
   if (startBtn) startBtn.textContent = "▶ Restart";
@@ -918,7 +877,7 @@ function nextRound() {
   setGameProgress();
 }
 
-function onMapDoubleClick(event) {
+function onQuizMapDoubleClick(event) {
   if (!gameActive || !gameAcceptingInput || !currentTarget) return;
 
   const guess = { lat: event.latLng.lat(), lng: event.latLng.lng() };
@@ -958,24 +917,42 @@ function endGame() {
   );
   const progressEl = document.getElementById("game-progress");
   if (progressEl) progressEl.textContent = `Final Score: ${gameScore} / ${GAME_TOTAL_ROUNDS}`;
-
-  // Hand the page back to its normal behavior.
-  setMapInteractive(true);
-  setMapQuizStyle(false);
-  setNonGameControlsEnabled(true);
-  restoreLayers();
 }
 
-// Wire up the Play button after DOM is ready.
+// Switch between the two tabs and trigger a Google Maps resize on the
+// newly-shown map (Maps misbehaves when initialized in a hidden container).
+function showTab(which) {
+  const exploreTab = document.getElementById("tab-explore");
+  const quizTab = document.getElementById("tab-quiz");
+  const explorePane = document.getElementById("pane-explore");
+  const quizPane = document.getElementById("pane-quiz");
+
+  const showQuiz = which === "quiz";
+
+  exploreTab.classList.toggle("active", !showQuiz);
+  quizTab.classList.toggle("active", showQuiz);
+  explorePane.classList.toggle("active", !showQuiz);
+  quizPane.classList.toggle("active", showQuiz);
+
+  // Force the Google Map to recalculate its tiles after becoming visible.
+  const activeMap = showQuiz ? quizMap : map;
+  if (activeMap) {
+    setTimeout(() => {
+      google.maps.event.trigger(activeMap, "resize");
+      activeMap.setCenter({ lat: 34.2415, lng: -118.5295 });
+    }, 50);
+  }
+}
+
+// Wire up tabs and the Play button after DOM is ready.
 document.addEventListener("DOMContentLoaded", () => {
+  const exploreTab = document.getElementById("tab-explore");
+  const quizTab = document.getElementById("tab-quiz");
+  if (exploreTab) exploreTab.addEventListener("click", () => showTab("explore"));
+  if (quizTab) quizTab.addEventListener("click", () => showTab("quiz"));
+
   const startBtn = document.getElementById("start-game-btn");
   if (startBtn) {
-    startBtn.addEventListener("click", () => {
-      if (!map) {
-        setGameStatus("Map is still loading, please try again in a moment.", "prompt");
-        return;
-      }
-      startGame();
-    });
+    startBtn.addEventListener("click", () => startGame());
   }
 });
